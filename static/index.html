@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>GPT Cataloging Assistant (Render Hosted)</title>
+  <title>GPT Cataloging Assistant (Hosted)</title>
   <style>
     body { font-family: Arial, sans-serif; background: #f8f9fa; padding: 20px; }
-    #dropZone { border: 2px dashed #ccc; padding: 30px; text-align: center; margin-bottom: 10px; }
+    #dropZone { border: 2px dashed #ccc; padding: 30px; text-align: center; background: #fff; margin-bottom: 10px; cursor: pointer; }
     textarea, button { width: 100%; margin-top: 10px; padding: 10px; }
     #result { white-space: pre-wrap; background: #eef; padding: 10px; margin-top: 10px; }
   </style>
 </head>
 <body>
-  <h2>📚 GPT Cataloging Assistant (Render Hosted)</h2>
+  <h2>📚 GPT Cataloging Assistant</h2>
   <div id="dropZone">📥 Drag and drop PDF or TXT files here</div>
   <textarea id="instructions" rows="3" placeholder="Write instructions or extra notes here..."></textarea>
   <button onclick="sendToGPT()">Send to GPT</button>
@@ -46,9 +46,9 @@
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
-          text += content.items.map(item => item.str).join(" ") + "\n";
+          text += content.items.map(item => item.str).join(" ") + "\\n";
         }
-        extractedText += `\n--- ${file.name} ---\n` + text;
+        extractedText += `\\n--- ${file.name} ---\\n` + text;
         document.getElementById("status").innerText = "✅ Text ready to send.";
       };
       reader.readAsArrayBuffer(file);
@@ -57,7 +57,7 @@
     async function extractFromTXT(file) {
       const reader = new FileReader();
       reader.onload = () => {
-        extractedText += `\n--- ${file.name} ---\n` + reader.result;
+        extractedText += `\\n--- ${file.name} ---\\n` + reader.result;
         document.getElementById("status").innerText = "✅ Text ready to send.";
       };
       reader.readAsText(file);
@@ -65,16 +65,20 @@
 
     async function sendToGPT() {
       const notes = document.getElementById("instructions").value;
-      const fullText = extractedText + "\n\n" + notes;
+      const fullText = extractedText + "\\n\\n" + notes;
       document.getElementById("status").innerText = "⏳ Sending to GPT...";
-      const response = await fetch("/catalog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: fullText })
-      });
-      const data = await response.json();
-      document.getElementById("result").innerText = data.result || data.error || "No result.";
-      document.getElementById("status").innerText = "✅ Done.";
+      try {
+        const response = await fetch("/catalog", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: fullText })
+        });
+        const data = await response.json();
+        document.getElementById("result").innerText = data.result || data.error || "No result.";
+        document.getElementById("status").innerText = "✅ Done.";
+      } catch (e) {
+        document.getElementById("status").innerText = "❌ Error sending to server.";
+      }
     }
 
     function exportResult(format) {
