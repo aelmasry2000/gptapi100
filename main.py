@@ -1,12 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from openai import OpenAI
 import os
 
 app = FastAPI()
 
-# Optional: allow local testing
+# Allow browser access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,12 +15,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load OpenAI API key from environment
+# Mount static HTML frontend
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+# OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Input schema
 class RequestData(BaseModel):
     text: str
 
+# POST endpoint to send to GPT
 @app.post("/catalog")
 async def catalog_book(request_data: RequestData):
     try:
@@ -36,3 +42,8 @@ async def catalog_book(request_data: RequestData):
         return {"result": result}
     except Exception as e:
         return {"error": str(e)}
+
+# Optional test endpoint
+@app.get("/ping")
+async def ping():
+    return {"message": "✅ GPT Cataloging API is running."}
