@@ -2,95 +2,80 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Cataloging Assistant (Drag & Drop)</title>
+  <title>GPT Cataloging Assistant (Render Hosted)</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; background: #f2f2f2; }
-    #dropZone {
-      border: 2px dashed #aaa;
-      padding: 40px;
-      text-align: center;
-      background: #fff;
-      margin-bottom: 20px;
-      border-radius: 10px;
-      cursor: pointer;
-    }
-    textarea, input, button {
-      width: 100%;
-      margin-top: 10px;
-      padding: 10px;
-      font-size: 16px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-    }
-    #result {
-      white-space: pre-wrap;
-      background: #eef;
-      margin-top: 20px;
-      padding: 15px;
-      border-radius: 10px;
-    }
-    #status {
-      color: green;
-      font-weight: bold;
-      margin-top: 10px;
-    }
+    body { font-family: Arial, sans-serif; background: #f8f9fa; padding: 20px; }
+    #dropZone { border: 2px dashed #ccc; padding: 30px; text-align: center; margin-bottom: 10px; }
+    textarea, button { width: 100%; margin-top: 10px; padding: 10px; }
+    #result { white-space: pre-wrap; background: #eef; padding: 10px; margin-top: 10px; }
   </style>
 </head>
 <body>
   <h2>📚 GPT Cataloging Assistant (Render Hosted)</h2>
   <div id="dropZone">📥 Drag and drop PDF or TXT files here</div>
-  <input type="file" id="fileInput" accept=".pdf,.txt" multiple style="display:none" />
-  <textarea id="textInput" rows="5" placeholder="Write instructions or extra notes here..."></textarea>
+  <textarea id="instructions" rows="3" placeholder="Write instructions or extra notes here..."></textarea>
   <button onclick="sendToGPT()">Send to GPT</button>
-  <div id="status">📂 Waiting...</div>
+  <div id="status">🟡 Waiting...</div>
   <div id="result">Result will appear here...</div>
-
   <button onclick="exportResult('mrk')">⬇️ Export as .mrk</button>
   <button onclick="exportResult('json')">⬇️ Export as .json</button>
   <button onclick="exportResult('xml')">⬇️ Export as .xml</button>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
   <script>
-  <script>
-    const fieldMap = {"245": "Title", "100": "MainAuthor", "700": "OtherAuthor", "264": "Publication", "300": "PhysicalDescription", "336": "ContentType", "337": "MediaType", "338": "CarrierType", "490": "Series", "500": "Note", "520": "Summary", "650": "Subject", "041": "Language", "020": "ISBN", "008": "FixedLengthData", "005": "TransactionDate", "001": "ControlNumber", "LDR": "Leader"};
+    let extractedText = "";
 
-    function exportResult(format) {
-      const raw = document.getElementById("result").textContent.trim();
-      if (!raw) return alert("No result to export!");
+    const dropZone = document.getElementById("dropZone");
+    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.style.borderColor = "blue"; });
+    dropZone.addEventListener("dragleave", e => { e.preventDefault(); dropZone.style.borderColor = "#ccc"; });
+    dropZone.addEventListener("drop", e => {
+      e.preventDefault();
+      dropZone.style.borderColor = "#ccc";
+      const files = [...e.dataTransfer.files];
+      files.forEach(file => {
+        if (file.type === "application/pdf") extractFromPDF(file);
+        else if (file.type === "text/plain") extractFromTXT(file);
+      });
+    });
 
-      let blob;
-      if (format === "mrk") {
-        blob = new Blob([raw], { type: "text/plain;charset=utf-8" });
-      } else if (format === "json") {
-        const lines = raw.split(/\n/).filter(l => l.startsWith("="));
-        const record = {};
-        for (let line of lines) {
-          const tag = line.slice(1, 4);
-          const field = fieldMap[tag] || tag;
-          const content = line.slice(6).replace(/\$[a-z0-9]/g, "").trim();
-          if (!record[field]) record[field] = [];
-          record[field].push(content);
+    async function extractFromPDF(file) {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const pdf = await pdfjsLib.getDocument(new Uint8Array(reader.result)).promise;
+        let text = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          text += content.items.map(item => item.str).join(" ") + "\n";
         }
-        blob = new Blob([JSON.stringify(record, null, 2)], { type: "application/json" });
-      } else if (format === "xml") {
-        const lines = raw.split(/\n/).filter(l => l.startsWith("="));
-        let xml = '<?xml version="1.0"?>\n<record>\n';
-        for (let line of lines) {
-          const tag = line.slice(1, 4);
-          const field = fieldMap[tag] || tag;
-          let content = line.slice(6).replace(/\$[a-z0-9]/g, "").trim()
-            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-          xml += `  <${field}>${content}</${field}>\n`;
-        }
-        xml += "</record>";
-        blob = new Blob([xml], { type: "application/xml" });
-      }
-
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "catalog_result." + format;
-      a.click();
+        extractedText += `\n--- ${file.name} ---\n` + text;
+        document.getElementById("status").innerText = "✅ Text ready to send.";
+      };
+      reader.readAsArrayBuffer(file);
     }
-  </script>
+
+    async function extractFromTXT(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        extractedText += `\n--- ${file.name} ---\n` + reader.result;
+        document.getElementById("status").innerText = "✅ Text ready to send.";
+      };
+      reader.readAsText(file);
+    }
+
+    async function sendToGPT() {
+      const notes = document.getElementById("instructions").value;
+      const fullText = extractedText + "\n\n" + notes;
+      document.getElementById("status").innerText = "⏳ Sending to GPT...";
+      const response = await fetch("/catalog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: fullText })
+      });
+      const data = await response.json();
+      document.getElementById("result").innerText = data.result || data.error || "No result.";
+      document.getElementById("status").innerText = "✅ Done.";
+    }
 
     function exportResult(format) {
       const text = document.getElementById("result").textContent;
@@ -99,76 +84,6 @@
       a.href = URL.createObjectURL(blob);
       a.download = "catalog_result." + format;
       a.click();
-    }
-  </script>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
-  <script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.worker.min.js";
-    const dropZone = document.getElementById("dropZone");
-    const fileInput = document.getElementById("fileInput");
-    const status = document.getElementById("status");
-    const result = document.getElementById("result");
-    let allText = "";
-
-    dropZone.addEventListener("click", () => fileInput.click());
-    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.style.borderColor = "blue"; });
-    dropZone.addEventListener("dragleave", () => { dropZone.style.borderColor = "#aaa"; });
-    dropZone.addEventListener("drop", e => {
-      e.preventDefault(); dropZone.style.borderColor = "#aaa";
-      handleFiles(e.dataTransfer.files);
-    });
-    fileInput.addEventListener("change", () => handleFiles(fileInput.files));
-
-    async function handleFiles(files) {
-      allText = "";
-      status.textContent = "📄 Extracting...";
-      for (let file of files) {
-        if (file.type === "application/pdf") {
-          allText += await extractPDF(file);
-        } else if (file.type === "text/plain") {
-          allText += await file.text();
-        }
-        allText += "\n---\n";
-      }
-      status.textContent = "✅ Text extracted. Ready to send.";
-    }
-
-    async function extractPDF(file) {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = async () => {
-          const typedArray = new Uint8Array(reader.result);
-          const pdf = await pdfjsLib.getDocument(typedArray).promise;
-          let text = `\n--- ${file.name} ---\n`;
-          for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            text += content.items.map(i => i.str).join(" ") + "\n";
-          }
-          resolve(text);
-        };
-        reader.readAsArrayBuffer(file);
-      });
-    }
-
-    async function sendToGPT() {
-      const userText = document.getElementById("textInput").value;
-      const input = userText + "\n\n" + allText;
-      status.textContent = "⏳ Sending to GPT...";
-      try {
-        const res = await fetch("/catalog", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: input })
-        });
-        const data = await res.json();
-        result.textContent = data.result || "No result.";
-        status.textContent = "✅ Done.";
-      } catch (err) {
-        result.textContent = "❌ Error sending to server.";
-        status.textContent = "⚠️ Failed.";
-      }
     }
   </script>
 </body>
