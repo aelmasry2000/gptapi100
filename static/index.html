@@ -18,7 +18,16 @@
   <div id="status">🕒 Waiting...</div>
   <pre id="result">Result will appear here...</pre>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js">
+document.getElementById("dropZone").addEventListener("click", () => {
+  document.getElementById("fileInput").click();
+});
+
+document.getElementById("fileInput").addEventListener("change", e => {
+  handleFiles(e.target.files);
+});
+
+</script>
   
 
   <div style="margin-top: 20px;">
@@ -132,6 +141,15 @@ function exportStructured(format) {
   a.download = "catalog_result." + format;
   a.click();
 }
+
+document.getElementById("dropZone").addEventListener("click", () => {
+  document.getElementById("fileInput").click();
+});
+
+document.getElementById("fileInput").addEventListener("change", e => {
+  handleFiles(e.target.files);
+});
+
 </script>
 </body>
 </html>
