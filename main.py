@@ -1,31 +1,38 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-import openai, os
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from openai import OpenAI
+import os
 
 app = FastAPI()
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Optional: allow local testing
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/")
-def serve_index():
-    return FileResponse("static/index.html")
+# Load OpenAI API key from environment
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+class RequestData(BaseModel):
+    text: str
 
 @app.post("/catalog")
-async def catalog(request: Request):
-    data = await request.json()
-    user_text = data.get("text", "")
-
-    if not user_text:
-        return JSONResponse({"error": "No text provided"}, status_code=400)
-
-    openai.api_key = os.getenv("OPENAI_API_KEY")
+async def catalog_book(request_data: RequestData):
     try:
-        completion = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
-            messages=[{"role": "user", "content": user_text}]
+            messages=[
+                {"role": "system", "content": "You are a MARC21 cataloging assistant. Use RDA rules."},
+                {"role": "user", "content": request_data.text}
+            ],
+            temperature=0.5,
+            max_tokens=2048
         )
-        result = completion.choices[0].message.content
+        result = response.choices[0].message.content.strip()
         return {"result": result}
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return {"error": str(e)}
