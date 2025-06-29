@@ -4,137 +4,134 @@
   <meta charset="UTF-8" />
   <title>GPT Cataloging Assistant</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f8f9fa;
-      padding: 20px;
-    }
-    #dropZone {
-      border: 2px dashed #ccc;
-      padding: 30px;
-      text-align: center;
-      background: #fff;
-      margin-bottom: 10px;
-      cursor: pointer;
-    }
-    textarea, button {
-      width: 100%;
-      margin-top: 10px;
-      padding: 10px;
-    }
-    #result {
-      white-space: pre-wrap;
-      background: #eef;
-      padding: 10px;
-      margin-top: 10px;
-    }
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    textarea, #dropZone, button { width: 100%; margin-top: 10px; padding: 10px; }
+    #dropZone { border: 2px dashed #aaa; text-align: center; height: 100px; line-height: 100px; }
+    #status, #result { margin-top: 15px; white-space: pre-wrap; }
   </style>
 </head>
 <body>
   <h2>📚 GPT Cataloging Assistant</h2>
-
-  <!-- Hidden file input -->
-  <input type="file" id="fileInput" multiple accept=".pdf,.txt" style="display: none;" />
-
-  <!-- Clickable + drag-and-drop area -->
-  <div id="dropZone" onclick="document.getElementById('fileInput').click();">
-    📥 Click or Drag and Drop PDF/TXT files here
-  </div>
-
-  <textarea id="instructions" rows="3" placeholder="Write instructions or extra notes here..."></textarea>
+  <div id="dropZone">📥 Click or Drag and Drop PDF/TXT files here</div>
+  <textarea id="instruction" rows="2" placeholder="Write instructions or notes here..."></textarea>
   <button onclick="sendToGPT()">Send to GPT</button>
-  <div id="status">🟡 Waiting...</div>
-  <div id="result">Result will appear here...</div>
-  <button onclick="exportResult('mrk')">⬇️ Export as .mrk</button>
-  <button onclick="exportResult('json')">⬇️ Export as .json</button>
-  <button onclick="exportResult('xml')">⬇️ Export as .xml</button>
+  <div id="status">🕒 Waiting...</div>
+  <pre id="result">Result will appear here...</pre>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.12.313/pdf.min.js"></script>
+  
+
+  <div style="margin-top: 20px;">
+    <button onclick="exportStructured('mrk')">📥 Export as .mrk</button>
+    <button onclick="exportStructured('json')">📥 Export as .json</button>
+    <button onclick="exportStructured('xml')">📥 Export as .xml</button>
+  </div>
   <script>
-    let extractedText = "";
-
-    // Drag and drop
-    const dropZone = document.getElementById("dropZone");
-    dropZone.addEventListener("dragover", e => {
-      e.preventDefault();
-      dropZone.style.borderColor = "blue";
-    });
-    dropZone.addEventListener("dragleave", e => {
-      e.preventDefault();
-      dropZone.style.borderColor = "#ccc";
-    });
-    dropZone.addEventListener("drop", e => {
-      e.preventDefault();
-      dropZone.style.borderColor = "#ccc";
-      const files = [...e.dataTransfer.files];
-      processFiles(files);
-    });
-
-    // Click-to-upload
-    document.getElementById("fileInput").addEventListener("change", e => {
-      const files = [...e.target.files];
-      processFiles(files);
-    });
-
-    // Handle all files
-    function processFiles(files) {
-      files.forEach(file => {
-        if (file.type === "application/pdf") extractFromPDF(file);
-        else if (file.type === "text/plain") extractFromTXT(file);
-      });
+function parseMARC(text) {
+  const fields = {};
+  const lines = text.trim().split('\n');
+  for (const line of lines) {
+    if (!line.startsWith("=")) continue;
+    const tag = line.slice(1, 4);
+    const content = line.slice(6);
+    const subfields = {};
+    const parts = content.split("$").slice(1);
+    for (const part of parts) {
+      const code = part[0];
+      const value = part.slice(1).trim();
+      subfields[code] = value;
     }
+    if (!fields[tag]) fields[tag] = [];
+    fields[tag].push(subfields);
+  }
+  return fields;
+}
 
-    async function extractFromPDF(file) {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const pdf = await pdfjsLib.getDocument(new Uint8Array(reader.result)).promise;
-        let text = "";
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          text += content.items.map(item => item.str).join(" ") + "\\n";
-        }
-        extractedText += `\\n--- ${file.name} ---\\n` + text;
-        document.getElementById("status").innerText = "✅ Text ready to send.";
-      };
-      reader.readAsArrayBuffer(file);
+function marcToJSON(fields) {
+  const labelMap = {
+    "100": "author",
+    "245": "title",
+    "264": "publication",
+    "300": "extent",
+    "336": "content_type",
+    "650": "subjects"
+  };
+  const result = {};
+  for (const tag in fields) {
+    const label = labelMap[tag] || ("field_" + tag);
+    const entries = fields[tag];
+    if (tag === "650") {
+      result[label] = entries.map(e => e["a"]);
+    } else if (entries.length === 1) {
+      result[label] = entries[0];
+    } else {
+      result[label] = entries;
     }
+  }
+  return result;
+}
 
-    function extractFromTXT(file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        extractedText += `\\n--- ${file.name} ---\\n` + reader.result;
-        document.getElementById("status").innerText = "✅ Text ready to send.";
-      };
-      reader.readAsText(file);
-    }
-
-    async function sendToGPT() {
-      const notes = document.getElementById("instructions").value;
-      const fullText = extractedText + "\\n\\n" + notes;
-      document.getElementById("status").innerText = "⏳ Sending to GPT...";
-      try {
-        const response = await fetch("/catalog", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: fullText })
-        });
-        const data = await response.json();
-        document.getElementById("result").innerText = data.result || data.error || "No result.";
-        document.getElementById("status").innerText = "✅ Done.";
-      } catch (e) {
-        document.getElementById("status").innerText = "❌ Error sending to server.";
+function marcToXML(fields) {
+  const labelMap = {
+    "100": "author",
+    "245": "title",
+    "264": "publication",
+    "300": "extent",
+    "336": "content_type",
+    "650": "subject"
+  };
+  let xml = '<record>';
+  for (const tag in fields) {
+    const label = labelMap[tag] || ("field_" + tag);
+    for (const entry of fields[tag]) {
+      xml += `<${label}>`;
+      for (const code in entry) {
+        const value = entry[code].replace(/[<>&'"]/g, c => ({
+          '<':'&lt;', '>':'&gt;', '&':'&amp;', ''':'&apos;', '"':'&quot;'
+        }[c]));
+        xml += `<${code}>${value}</${code}>`;
       }
+      xml += `</${label}>`;
     }
+  }
+  xml += '</record>';
+  return formatXml(xml);
+}
 
-    function exportResult(format) {
-      const text = document.getElementById("result").textContent;
-      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "catalog_result." + format;
-      a.click();
-    }
-  </script>
+function formatXml(xml) {
+  const PADDING = '  ';
+  const reg = /(>)(<)(\/*)/g;
+  let pad = 0;
+  return xml.replace(reg, '$1\n$2$3').split('\n').map((node) => {
+    let indent = 0;
+    if (node.match(/^<\//)) pad -= 1;
+    indent = PADDING.repeat(pad);
+    if (node.match(/^<[^!?]/) && !node.match(/\/>$/) && !node.match(/^<\//)) pad += 1;
+    return indent + node;
+  }).join('\n');
+}
+
+function exportStructured(format) {
+  const text = document.getElementById("result").textContent;
+  if (!text || text.startsWith("❌")) {
+    alert("No valid MARC output to export.");
+    return;
+  }
+  const parsed = parseMARC(text);
+  let blob;
+  if (format === "json") {
+    blob = new Blob([JSON.stringify(marcToJSON(parsed), null, 2)], { type: "application/json" });
+  } else if (format === "xml") {
+    blob = new Blob([marcToXML(parsed)], { type: "application/xml" });
+  } else {
+    blob = new Blob([text], { type: "text/plain" });
+  }
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "catalog_result." + format;
+  a.click();
+}
+</script>
 </body>
 </html>
